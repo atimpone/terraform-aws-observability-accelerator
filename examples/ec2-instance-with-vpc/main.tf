@@ -42,20 +42,23 @@ locals {
 #---------------------------------------------------------------
 # Create S3 bucket for upload of ADOT configuration scripts
 #---------------------------------------------------------------
-resource "aws_s3_bucket" "s3_bucket_for_scripts" {
-  #source = "terraform-aws-modules/s3-bucket/aws"
+resource "random_id" "example" {
+  byte_length = 8
+}
+module "s3_bucket" {
+  source = "terraform-aws-modules/s3-bucket/aws"
 
-  bucket = "adot-scripts"
+  bucket = "adot-scripts-${random_id.example.hex}"
 }
 
-resource "aws_s3_bucket_object" "configure_adot" {
-  bucket = aws_s3_bucket.s3_bucket_for_scripts.id
+resource "aws_s3_object" "configure_adot" {
+  bucket = module.s3_bucket.s3_bucket_id
   key    = "configure_adot.sh"
   source = "configure_adot.sh"
 }
 
-resource "aws_s3_bucket_object" "node_exporter_setup" {
-  bucket = aws_s3_bucket.s3_bucket_for_scripts.id
+resource "aws_s3_object" "node_exporter_setup" {
+  bucket = module.s3_bucket.s3_bucket_id
   key    = "node_exporter_setup.sh"
   source = "node_exporter_setup.sh"
 }
@@ -104,7 +107,7 @@ module "iam_policy" {
             {
               "Effect": "Allow",
               "Action": "s3:GetObject",
-              "Resource": "${aws_s3_bucket.s3_bucket_for_scripts.arn}/*"
+              "Resource": "${module.s3_bucket.s3_bucket_arn}/*"
             }
         ]
     })
@@ -139,26 +142,7 @@ resource "aws_iam_role_policy_attachment" "AWSDistroOpenTelemetryRole-Prometheus
   policy_arn = "arn:aws:iam::aws:policy/AmazonPrometheusRemoteWriteAccess"
 }
 
-#---------------------------------------------------------------
-# 3. Create or identify Key Pair
-#    https://registry.terraform.io/modules/terraform-aws-modules/key-pair/aws/latest
-#---------------------------------------------------------------
-resource "tls_private_key" "pk" {
-  algorithm = "RSA"
-}
 
-module "key_pair" {
-  source = "terraform-aws-modules/key-pair/aws"
-
-  key_name   = "ADOTkeypair"
-  public_key = trimspace(tls_private_key.pk.public_key_openssh)
-}
-
-resource "local_file" "ssh_key" {
-  filename = "ADOTkeypair.pem"
-  content = tls_private_key.pk.private_key_pem
-  file_permission = "0400"
-}
 
 #---------------------------------------------------------------
 # 4. Create or identify VPC, Subnets
@@ -166,7 +150,6 @@ resource "local_file" "ssh_key" {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 3.0"
 
   name = local.name
   cidr = local.vpc_cidr
@@ -225,10 +208,8 @@ resource "aws_iam_instance_profile" "ADOTEC2InstanceProfile" {
 }
 
 #---------------------------------------------------------------
-# Create or identify EC2 instance(s)
+# Create EC2 instance(s)
 #    https://registry.terraform.io/modules/terraform-aws-modules/ec2-instance/aws/latest
-#    a. SSH to instance and setup Node Exporter
-#    b. SSH to instance and setup ADOT
 #---------------------------------------------------------------
 data "aws_ami" "amazon-linux-2" {
   most_recent = true
@@ -244,11 +225,12 @@ data "aws_ami" "amazon-linux-2" {
 }
 
 resource "aws_instance" "ADOTEC2TerraformInstance" {
+
   ami                    = "${data.aws_ami.amazon-linux-2.id}"
   instance_type          = var.ec2_instance_type
   vpc_security_group_ids = [aws_security_group.ADOTEC2SecurityGroup.id]
   subnet_id              = element(module.vpc.public_subnets, 0)
-  key_name               = "${module.key_pair.key_pair_name}"
+  #key_name               = "${module.key_pair.key_pair_name}"
 
   iam_instance_profile = aws_iam_instance_profile.ADOTEC2InstanceProfile.name
 
@@ -276,15 +258,16 @@ sudo ./aws/install
 
 echo "Copying scripts from S3 bucket"
 if [ ! -f "/tmp/node_exporter_setup.sh" ]; then
-  aws s3 cp s3://${aws_s3_bucket.s3_bucket_for_scripts.bucket}/node_exporter_setup.sh /tmp/node_exporter_setup.sh
+  aws s3 cp s3://${module.s3_bucket.s3_bucket_id}/node_exporter_setup.sh /tmp/node_exporter_setup.sh
   chmod +x /tmp/node_exporter_setup.sh
   /tmp/node_exporter_setup.sh
 fi
 
 if [ ! -f "/tmp/configure_adot.sh" ]; then
-  aws s3 cp s3://${aws_s3_bucket.s3_bucket_for_scripts.bucket}/configure_adot.sh /tmp/configure_adot.sh
+  aws s3 cp s3://${module.s3_bucket.s3_bucket_id}/configure_adot.sh /tmp/configure_adot.sh
   chmod +x /tmp/configure_adot.sh
   /tmp/configure_adot.sh
 fi
+
  EOF 
 }
