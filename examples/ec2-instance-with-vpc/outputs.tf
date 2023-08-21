@@ -19,6 +19,6 @@ output "ec2_instance_id" {
 }
 
 output "ec2_instance_arn" {
-  description = "EKS managed node group arns"
+  description = "EC2 arn"
   value       = aws_instance.ADOTEC2TerraformInstance.arn
 }
