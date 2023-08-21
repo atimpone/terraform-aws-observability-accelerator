@@ -1,8 +1,3 @@
-variable "instance_id" {
-  description = "ID of the EC2 Instance"
-  type        = string
-  default     = ""
-}
 variable "aws_region" {
   description = "AWS Region"
   type        = string
